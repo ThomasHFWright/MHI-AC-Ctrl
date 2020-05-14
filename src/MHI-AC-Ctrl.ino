@@ -8,6 +8,8 @@ bool sync = 0;
 byte rx_SPIframe[20];
 bool updateMQTTStatus=true;
 uint updateMQTTStatus_opdata=opdataCnt;
+bool currentPower = false;
+char currentMode[20];
 
 void MQTTreconnect() {
   unsigned long runtimeMillisMQTT;
@@ -63,6 +65,15 @@ void publish_cmd_unknown() {
 void publish_cmd_invalidparameter() {
   MQTTclient.publish(MQTT_PREFIX "cmd_received", "invalid parameter");
 }
+//if power is off, will post power status, otherwise post mode status
+void publish_mode_power() {
+  if(currentPower == false) {
+    MQTTclient.publish(MQTT_PREFIX "ModePower", POWER_OFF, true);
+  }
+  else{
+    MQTTclient.publish(MQTT_PREFIX "ModePower", currentMode, true);
+  }
+}
 
 bool set_Power = false;
 byte new_Power;
@@ -84,17 +95,19 @@ void MQTT_subscribe_callback(char* topic, byte* payload, unsigned int length) {
   if (strcmp(topic, MQTT_SET_PREFIX "Power") == 0) {
     new_Power = rx_SPIframe[DB0] | 0b11;
     if (strcmp(payload_str, POWER_ON) == 0) {
+      currentPower = true;
       set_Power = true;
       new_Power = 0b11;
       publish_cmd_ok();
     }
     else if (strcmp(payload_str, POWER_OFF) == 0) {
+      currentPower = false;
       set_Power = true;
       new_Power = 0b10;
       publish_cmd_ok();
     }
     else
-      publish_cmd_invalidparameter();
+      publish_cmd_invalidparameter(); 
   }
   else if (strcmp(topic, MQTT_SET_PREFIX "Mode") == 0) {
     if (strcmp(payload_str, MODE_AUTO) == 0) {
@@ -406,10 +419,16 @@ void loop() {
         repetitionNo = 0;
         if (updateMQTTStatus | ((rx_SPIframe[DB0] & 0x01) != power_old)) { // Power
           power_old = rx_SPIframe[DB0] & 0x01;
-          if (power_old == 0)
+          if (power_old == 0){
+            currentPower = false;
             MQTTclient.publish(MQTT_PREFIX "Power", POWER_OFF, true);
-          else
+            publish_mode_power();
+          }
+          else{
+            currentPower = true;
             MQTTclient.publish(MQTT_PREFIX "Power", POWER_ON, true);
+            publish_mode_power();
+          }
         }
 
         if (updateMQTTStatus | ((rx_SPIframe[DB0] & 0x1c) != mode_old)) { // Mode
@@ -417,23 +436,31 @@ void loop() {
           switch (mode_old) {
             case 0x00:
               MQTTclient.publish(MQTT_PREFIX "Mode", MODE_AUTO, true);
+              //strcpy(currentMode, MODE_AUTO);
               break;
             case 0x04:
               MQTTclient.publish(MQTT_PREFIX "Mode", MODE_DRY, true);
+              //strcpy(currentMode, MODE_DRY);
               break;
             case 0x08:
               MQTTclient.publish(MQTT_PREFIX "Mode", MODE_COOL, true);
+              //strcpy(currentMode, MODE_COOL);
               break;
             case 0x0c:
               MQTTclient.publish(MQTT_PREFIX "Mode", MODE_FAN, true);
+              //strcpy(currentMode, MODE_FAN);
               break;
             case 0x10:
               MQTTclient.publish(MQTT_PREFIX "Mode", MODE_HEAT, true);
+              //strcpy(currentMode, MODE_HEAT);
               break;
             default:
               MQTTclient.publish(MQTT_PREFIX "Mode", "invalid", true);
+              //strcpy(currentMode, "invalid");
               break;
           }
+          //MQTTclient.publish(MQTT_PREFIX "Mode", currentMode, true);
+          publish_mode_power();
         }
 
         uint fantmp;
